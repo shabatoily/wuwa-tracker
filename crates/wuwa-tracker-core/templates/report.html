@@ -82,7 +82,11 @@
           </div>
           <div class="metric">
             <div class="muted">{{ luck_score_label }}</div>
-            <strong>{{ "{:.2}"|format(stat.luck_score) }}</strong>
+            {% if stat.has_pick_up() %}
+              <strong>{{ "{:.2}"|format(stat.luck_score) }}</strong>
+            {% else %}
+              <strong>{{ luck_score_unknown }}</strong>
+            {% endif %}
           </div>
         </div>
 

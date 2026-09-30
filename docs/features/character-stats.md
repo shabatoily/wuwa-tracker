@@ -71,7 +71,7 @@ struct CharacterSummary {
 
 이 방식은 기존 5성 히스토리 계산과 같은 관점이다. 저장된 기록 이전에 이미 pity가 쌓여 있던 경우 첫 획득 비용은 저장된 히스토리 기준으로만 계산된다.
 
-## Pickup Pull Efficiency (변경 예정)
+## Pickup Pull Efficiency
 
 캐릭터 픽업 배너의 `avgPulls`와 `luckScore`는 전체 5성 획득이 아니라 한정 픽업 캐릭터 획득을 기준으로 계산한다. `expectedPulls = 80`은 픽뚫 비용까지 고려한 고정 기대값이며, 이번 변경에서 조정하지 않는다. 이 계산은 캐릭터별 재화 집계와 별도로 기존 배너 통계에 적용한다.
 
@@ -83,12 +83,13 @@ struct CharacterSummary {
 - 픽뚫이 없는 배너는 모든 5성 획득을 완료 주기로 취급한다. `fiveStars`, `actualRate`, 현재 pity는 기존 전체 5성 기준을 유지한다. 평균과 운 점수의 표시 문구는 배너의 획득 대상에 맞춘다.
 - 저장된 기록 이전의 pity나 픽뚫은 복원하지 않는다. 첫 완료 주기도 저장된 히스토리 안에서 확인되는 비용만 사용한다.
 
-### Current Implementation Gap
+### Implementation
 
-- `crates/wuwa-tracker-core/src/stats.rs`: 현재 `avgPulls`는 전체 5성의 `pity` 합을 전체 5성 개수로 나눈다. `luckScore`는 픽뚫 비용을 누적하지만 마지막 픽뚫로 끝난 미완료 주기도 기대값 1회분과 함께 포함한다. 두 계산 모두 완료된 픽업 획득 주기를 기준으로 변경해야 한다.
+- `crates/wuwa-tracker-core/src/stats.rs`: `avgPulls`와 `luckScore`는 완료된 픽업 주기만 사용한다. 픽뚫 비용 누적, 미완료 주기 제외, 픽뚫 없는 배너의 계산을 단위 테스트로 검증한다.
 - `crates/wuwa-tracker-core/src/config.rs`: 캐릭터 픽업 배너의 고정 기준값 80을 유지한다.
-- `crates/wuwa-tracker-types/src/lib.rs`: 픽업 획득이 없을 때 평균과 운 점수를 평가할 수 없다는 상태를 표현해야 한다.
-- `crates/wuwa-tracker-webui/src/app.rs`: 현재 전체 5성 평균 문구와 `hasFiveStar` 기반 표시를 픽업 획득 기준으로 변경해야 한다. 관련 문구는 `locales/ui/ko.json`, `locales/ui/en.json`에 반영한다.
+- `crates/wuwa-tracker-types/src/lib.rs`: `Stats::has_pick_up()`으로 평가 가능 여부를 판단한다. 픽업이 없으면 숫자 필드는 0을 유지하며, `hasFiveStar`는 전체 5성 획득 여부를 유지한다.
+- `crates/wuwa-tracker-webui/src/app.rs`: 픽업 획득 여부로 평균과 운 점수를 표시하며 한정 캐릭터 배너의 평균 문구를 구분한다. `locales/ui/ko.json`, `locales/ui/en.json`에 완료 주기 기준을 설명한다.
+- `crates/wuwa-tracker-core/src/reporter.rs`, `crates/wuwa-tracker-core/templates/report.html`: HTML 리포트도 픽업 획득이 없으면 운 점수를 평가 불가로 표시한다.
 
 ### Verification Criteria
 
