@@ -636,9 +636,15 @@ fn CharacterMetric(label: String, value: String) -> impl IntoView {
 
 #[component]
 fn GachaReport(stat: Stats, state: AppState) -> impl IntoView {
+    let has_pick_up = stat.has_pick_up();
+    let average_label = if matches!(stat.gacha_type, 1 | 8 | 10 | 12) {
+        "report.my_avg_pickup_pulls"
+    } else {
+        "report.my_avg_pulls"
+    };
     let luck_state = luck_state(stat.luck_score, &state.thresholds.get_untracked());
     let luck_class = luck_text_class(&luck_state);
-    let luck_panel_class = if stat.has_five_star {
+    let luck_panel_class = if has_pick_up {
         luck_panel_class(&luck_state)
     } else {
         "bg-slate-900/40 border-slate-800/50"
@@ -681,7 +687,7 @@ fn GachaReport(stat: Stats, state: AppState) -> impl IntoView {
                         <div class=format!("p-5 rounded-xl border {luck_panel_class}")>
                             <p class="text-xs text-slate-500 mb-1">{state.i18n.text("report.luck_score")}</p>
                             <p class="text-2xl font-extrabold">
-                                {if stat.has_five_star {
+                                {if has_pick_up {
                                     format!("{} ({:.0}%)", state.i18n.text(&format!("report.luck_score_state.{luck_state}")), stat.luck_score)
                                 } else {
                                     state.i18n.text("report.luck_score_unknown")
@@ -695,7 +701,7 @@ fn GachaReport(stat: Stats, state: AppState) -> impl IntoView {
                             {state.i18n.text("report.efficiency_analysis")}
                         </h4>
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                            <Efficiency label=state.i18n.text("report.my_avg_pulls") value=if stat.has_five_star { format!("{:.1}{}", stat.avg_pulls, state.i18n.text("report.avg_pulls_suffix")) } else { state.i18n.text("report.no_avg_pulls") } />
+                            <Efficiency label=state.i18n.text(average_label) value=if has_pick_up { format!("{:.1}{}", stat.avg_pulls, state.i18n.text("report.avg_pulls_suffix")) } else { state.i18n.text("report.no_avg_pulls") } />
                             <Efficiency label=state.i18n.text("report.expected_avg_pulls") value=format!("{}{}", stat.expected_pulls, state.i18n.text("report.avg_pulls_suffix")) />
                             <div class="flex justify-between sm:flex-col sm:justify-start gap-1">
                                 <span class="text-slate-500 text-xs">{state.i18n.text("report.actual_rate_vs_base")}</span>

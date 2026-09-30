@@ -105,6 +105,11 @@ fn export_html(config: &Config, data: &ReportData, lang: &str) -> Result<Vec<u8>
         player_id: &data.player_id,
         stats: &data.stats,
         threshold_count: config.luck_score_thresholds.len(),
+        luck_score_unknown: i18n
+            .translations
+            .get("report.luck_score_unknown")
+            .map(String::as_str)
+            .unwrap_or("N/A"),
         luck_score_label: i18n
             .translations
             .get("report.luck_score")
@@ -123,4 +128,5 @@ struct ReportTemplate<'a> {
     stats: &'a [Stats],
     threshold_count: usize,
     luck_score_label: &'a str,
+    luck_score_unknown: &'a str,
 }

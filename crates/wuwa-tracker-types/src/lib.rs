@@ -102,12 +102,20 @@ pub struct Stats {
     pub five_stars: Vec<FiveStarRecord>,
     /// 최신순으로 정렬된 원본 기록입니다.
     pub records: Vec<Record>,
+    /// 완료된 픽업 획득 주기의 평균이며 픽뚫 비용을 포함합니다. 픽업이 없으면 0입니다.
     pub avg_pulls: f64,
     /// 실제 5성 획득률이며 백분율 단위입니다.
     pub actual_rate: f64,
-    /// 기대 뽑기 횟수를 실제 뽑기 횟수로 나눈 상대 점수이며 100이 기준입니다.
+    /// 완료된 픽업 주기의 기대 횟수를 실제 횟수로 나눈 점수입니다. 픽업이 없으면 0입니다.
     pub luck_score: f64,
     pub has_five_star: bool,
+}
+
+impl Stats {
+    /// 평균과 운 점수를 평가할 수 있는 완료된 픽업 획득이 있는지 반환합니다.
+    pub fn has_pick_up(&self) -> bool {
+        self.five_stars.iter().any(|record| record.is_pick_up)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

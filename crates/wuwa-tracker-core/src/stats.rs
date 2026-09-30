@@ -72,37 +72,98 @@ impl StatsCalculator {
         let five_star_count = stats.five_stars.len();
         if five_star_count > 0 {
             stats.has_five_star = true;
-            let sum_pity: i32 = stats.five_stars.iter().map(|item| item.pity).sum();
-            stats.avg_pulls = sum_pity as f64 / five_star_count as f64;
             if stats.total_pulls > 0 {
                 stats.actual_rate = five_star_count as f64 / stats.total_pulls as f64 * 100.0;
             }
 
-            let mut expected_total = 0;
+            let mut pickup_count = 0;
             let mut actual_total = 0;
             let mut current_cycle_pulls = 0;
 
             for five_star in &stats.five_stars {
+                // 픽뚫 비용은 다음 픽업 획득까지 누적해 하나의 완료 주기로 평가합니다.
                 current_cycle_pulls += five_star.pity;
-                if !gacha_type.has_off_banner_drop || five_star.is_pick_up {
-                    expected_total += gacha_type.expected_pulls;
+                if five_star.is_pick_up {
+                    pickup_count += 1;
                     actual_total += current_cycle_pulls;
                     current_cycle_pulls = 0;
                 }
             }
 
-            if current_cycle_pulls > 0 {
-                expected_total += gacha_type.expected_pulls;
-                actual_total += current_cycle_pulls;
-            }
-
+            // 미완료 픽뚫과 현재 pity는 제외하여 평균과 운 점수의 평가 대상을 일치시킵니다.
             if actual_total > 0 {
-                stats.luck_score = expected_total as f64 / actual_total as f64 * 100.0;
+                stats.avg_pulls = actual_total as f64 / pickup_count as f64;
+                stats.luck_score = gacha_type.expected_pulls as f64 / stats.avg_pulls * 100.0;
             }
         }
 
         stats.five_stars.reverse();
         stats.records.reverse();
         stats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn records(cycles: &[(usize, Option<i32>)]) -> Vec<Record> {
+        let mut records = Vec::new();
+        for &(pulls, resource_id) in cycles {
+            records.extend((0..pulls).map(|index| Record {
+                quality_level: if index + 1 == pulls && resource_id.is_some() {
+                    5
+                } else {
+                    3
+                },
+                resource_id: resource_id.unwrap_or_default(),
+                ..Default::default()
+            }));
+        }
+        records.reverse();
+        records
+    }
+
+    #[test]
+    fn pickup_efficiency_uses_completed_cycles_only() {
+        let config = Config::default();
+        let calculator = StatsCalculator::new(&config);
+        let banner = &config.gacha_types[0];
+        let completed = calculator.calc(&records(&[(60, Some(1203)), (70, Some(9999))]), banner);
+        assert_eq!(completed.avg_pulls, 130.0);
+        assert!((completed.luck_score - 80.0 / 130.0 * 100.0).abs() < 1e-10);
+        assert!(completed.has_pick_up());
+        let unfinished = calculator.calc(
+            &records(&[
+                (60, Some(1203)),
+                (70, Some(9999)),
+                (20, Some(1203)),
+                (10, None),
+            ]),
+            banner,
+        );
+        assert_eq!(unfinished.avg_pulls, completed.avg_pulls);
+        assert_eq!(unfinished.luck_score, completed.luck_score);
+        assert_eq!(unfinished.current_pity5, 10);
+        assert_eq!(unfinished.five_stars.len(), 3);
+        assert!((unfinished.actual_rate - 3.0 / 160.0 * 100.0).abs() < 1e-10);
+        for cycles in [vec![], vec![(10, None)], vec![(60, Some(1203)), (10, None)]] {
+            let stats = calculator.calc(&records(&cycles), banner);
+            assert!(!stats.has_pick_up());
+            assert_eq!(stats.avg_pulls, 0.0);
+            assert_eq!(stats.luck_score, 0.0);
+        }
+        let multiple = calculator.calc(
+            &records(&[(60, Some(1203)), (70, Some(9999)), (30, Some(9999))]),
+            banner,
+        );
+        assert_eq!(multiple.avg_pulls, 80.0);
+        assert_eq!(multiple.luck_score, 100.0);
+        let guaranteed = calculator.calc(
+            &records(&[(60, Some(1203)), (70, Some(9999)), (10, None)]),
+            &config.gacha_types[1],
+        );
+        assert_eq!(guaranteed.avg_pulls, 65.0);
+        assert!((guaranteed.luck_score - 55.0 / 65.0 * 100.0).abs() < 1e-10);
     }
 }
