@@ -669,6 +669,7 @@ mod tests {
     #[test]
     fn stats_summary_omits_raw_records() {
         let response = StatsResponse {
+            character_summaries: Vec::new(),
             success: true,
             player_id: "123456789".to_string(),
             error: None,
