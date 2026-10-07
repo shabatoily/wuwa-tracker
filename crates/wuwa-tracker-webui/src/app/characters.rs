@@ -2,20 +2,14 @@ use super::{
     shared::{format_number, Metric},
     state::AppState,
 };
-use crate::types::{character_summaries, CharacterSummary};
+use crate::types::CharacterSummary;
 use leptos::prelude::*;
-
-const ASTRITE_PER_PULL: usize = 160;
 
 #[component]
 pub(super) fn CharactersPage(state: AppState) -> impl IntoView {
     view! {
         {move || {
-            let summaries = character_summaries(
-                &state.stats.get(),
-                &state.character_resource_type.get(),
-                ASTRITE_PER_PULL,
-            );
+            let summaries = state.character_summaries.get();
             match state.selected_character_id.get() {
                 Some(resource_id) => summaries
                     .iter()

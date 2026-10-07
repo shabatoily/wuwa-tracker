@@ -6,6 +6,7 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 use wuwa_tracker_core::{
+    characters::character_summaries,
     config::Config,
     error::AppError,
     reporter::{self, ReportFormat},
@@ -15,8 +16,8 @@ use wuwa_tracker_core::{
     tracker::{self, TrackerClient},
 };
 use wuwa_tracker_types::{
-    character_summaries, CharacterSummary, FetchResult, GachaType, LocaleData, Payload, Record,
-    ReportData, ResourceTypes, ScanResponse, StatsResponse,
+    CharacterSummary, FetchResult, GachaType, LocaleData, Payload, Record, ReportData,
+    ResourceTypes, ScanResponse, StatsResponse,
 };
 
 #[derive(Clone)]
@@ -150,13 +151,9 @@ impl Service {
         player_id: impl AsRef<str>,
     ) -> Result<Vec<CharacterSummary>, AppError> {
         let player_id = player_id.as_ref();
-        let result = self.get_stats_inner(player_id).map(|stats| {
-            character_summaries(
-                &stats.stats,
-                &self.resource_types().character,
-                self.config.astrite_per_pull,
-            )
-        });
+        let result = self
+            .load_player_stats(player_id)
+            .map(|response| response.character_summaries);
         match &result {
             Ok(summaries) => info!(
                 event = "character_summaries_loaded",
@@ -239,7 +236,7 @@ impl Service {
         let total_records = count_records(&fetch_result.records);
         let result = self
             .save_fetch_result(fetch_result)
-            .and_then(|_| self.get_stats_inner(&player_id));
+            .and_then(|_| self.load_player_stats(&player_id));
         match &result {
             Ok(_) => info!(
                 event = "upload_completed",
@@ -279,14 +276,14 @@ impl Service {
 
     pub fn get_stats(&self, player_id: impl AsRef<str>) -> Result<StatsResponse, AppError> {
         let player_id = player_id.as_ref();
-        let result = self.get_stats_inner(player_id);
+        let result = self.load_player_stats(player_id);
         if let Err(error) = &result {
             error!(event = "stats_load_failed", player_id = %player_id, error = %error);
         }
         result
     }
 
-    fn get_stats_inner(&self, player_id: &str) -> Result<StatsResponse, AppError> {
+    fn load_player_stats(&self, player_id: &str) -> Result<StatsResponse, AppError> {
         let player_id = player_id.trim();
         if player_id.is_empty() {
             return Err(AppError::MissingPlayerId);
@@ -302,10 +299,16 @@ impl Service {
             stats.push(self.calc.calc(&records, &gacha_type));
         }
 
+        let character_summaries = character_summaries(
+            &stats,
+            &self.resource_types().character,
+            self.config.astrite_per_pull,
+        );
         let response = StatsResponse {
             success: true,
             player_id: player_id.to_string(),
             stats,
+            character_summaries,
             error: None,
             error_key: None,
         };
@@ -321,7 +324,7 @@ impl Service {
     /// URL 검증, API 조회 또는 저장소 처리에 실패하면 [`AppError`]를 반환합니다.
     pub async fn track_url(&self, url: impl AsRef<str>) -> Result<StatsResponse, AppError> {
         let result = match self.fetch_and_save_inner(url.as_ref()).await {
-            Ok(fetch_result) => self.get_stats_inner(&fetch_result.payload.player_id),
+            Ok(fetch_result) => self.load_player_stats(&fetch_result.payload.player_id),
             Err(error) => Err(error),
         };
         match &result {
@@ -378,7 +381,7 @@ impl Service {
         format: ReportFormat,
         lang: &str,
     ) -> Result<Vec<u8>, AppError> {
-        let stats = self.get_stats_inner(player_id)?;
+        let stats = self.load_player_stats(player_id)?;
         if stats.stats.is_empty() {
             return Err(AppError::NoValidRecords);
         }
@@ -515,4 +518,61 @@ impl Service {
 
 fn count_records(records: &BTreeMap<String, Vec<Record>>) -> usize {
     records.values().map(Vec::len).sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn stats_responses_include_server_character_summaries() {
+        let db_path = std::env::temp_dir().join(format!(
+            "wuwa-character-summary-{}-{}.redb",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let service = Service::new(Config {
+            db_path: db_path.clone(),
+            astrite_per_pull: 200,
+            ..Default::default()
+        })
+        .unwrap();
+        let response = service
+            .upload(FetchResult {
+                payload: Payload {
+                    player_id: "summary-test".to_string(),
+                    ..Default::default()
+                },
+                records: BTreeMap::from([(
+                    "characterEvent".to_string(),
+                    vec![Record {
+                        resource_id: 100,
+                        quality_level: 5,
+                        resource_type: service.resource_types().character,
+                        name: "Jiyan".to_string(),
+                        time: "2026-01-01".to_string(),
+                        ..Default::default()
+                    }],
+                )]),
+            })
+            .unwrap();
+        assert_eq!(response.character_summaries.len(), 1);
+        assert_eq!(response.character_summaries[0].spent_astrite, 200);
+        let loaded = service.get_stats("summary-test").unwrap();
+        assert_eq!(loaded.character_summaries, response.character_summaries);
+        assert_eq!(
+            service.character_summaries("summary-test").unwrap(),
+            response.character_summaries
+        );
+        let json = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(json["characterSummaries"][0]["resourceId"], 100);
+        let decoded: StatsResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.character_summaries, response.character_summaries);
+        drop(service);
+        fs::remove_file(db_path).unwrap();
+    }
 }

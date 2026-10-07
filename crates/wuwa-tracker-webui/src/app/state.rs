@@ -1,7 +1,7 @@
 use crate::{
     api,
     i18n::I18n,
-    types::{LuckScoreThreshold, Stats, StatsResponse},
+    types::{CharacterSummary, LuckScoreThreshold, Stats, StatsResponse},
 };
 use leptos::prelude::*;
 use serde_json::Value;
@@ -29,7 +29,7 @@ pub(super) struct AppState {
     // 같은 배너의 새 데이터도 `<For>` child를 다시 생성하도록 명시적인 revision을 key에 포함합니다.
     pub(super) stats_revision: RwSignal<u64>,
     pub(super) thresholds: RwSignal<Vec<LuckScoreThreshold>>,
-    pub(super) character_resource_type: RwSignal<String>,
+    pub(super) character_summaries: RwSignal<Vec<CharacterSummary>>,
 }
 
 impl AppState {
@@ -53,7 +53,7 @@ impl AppState {
             stats: RwSignal::new(Vec::new()),
             stats_revision: RwSignal::new(0),
             thresholds: RwSignal::new(Vec::new()),
-            character_resource_type: RwSignal::new(String::new()),
+            character_summaries: RwSignal::new(Vec::new()),
         }
     }
 
@@ -71,7 +71,8 @@ impl AppState {
             .unwrap_or_else(|| self.i18n.text(fallback))
     }
 
-    fn replace_stats(self, stats: Vec<Stats>) {
+    fn replace_stats(self, stats: Vec<Stats>, character_summaries: Vec<CharacterSummary>) {
+        self.character_summaries.set(character_summaries);
         self.stats.set(stats);
         self.stats_revision
             .update(|revision| *revision = revision.wrapping_add(1));
@@ -81,8 +82,6 @@ impl AppState {
         if let Ok(config) = api::fetch_config().await {
             if config.success {
                 self.thresholds.set(config.luck_score_thresholds);
-                self.character_resource_type
-                    .set(config.resource_types.character);
             }
         }
         self.load_players().await;
@@ -105,14 +104,16 @@ impl AppState {
         self.active_player.set(player_id.clone());
         self.selected_character_id.set(None);
         match api::fetch_stats(&player_id).await {
-            Ok(response) if response.success => self.replace_stats(response.stats),
+            Ok(response) if response.success => {
+                self.replace_stats(response.stats, response.character_summaries)
+            }
             Ok(response) => {
-                self.replace_stats(Vec::new());
+                self.replace_stats(Vec::new(), Vec::new());
                 self.error
                     .set(self.translated_error(&response, "app.failed_stats"));
             }
             Err(_) => {
-                self.replace_stats(Vec::new());
+                self.replace_stats(Vec::new(), Vec::new());
                 self.error.set(self.i18n.text("app.network_error"));
             }
         }
@@ -168,7 +169,7 @@ impl AppState {
             Ok(response) if response.success => {
                 let player_id = response.player_id;
                 self.active_player.set(player_id.clone());
-                self.replace_stats(response.stats);
+                self.replace_stats(response.stats, response.character_summaries);
                 self.success.set(
                     self.i18n
                         .format("app.track_success", &[("playerId", player_id.clone())]),
@@ -202,7 +203,7 @@ impl AppState {
             Ok(response) if response.success => {
                 let player_id = response.player_id;
                 self.active_player.set(player_id.clone());
-                self.replace_stats(response.stats);
+                self.replace_stats(response.stats, response.character_summaries);
                 self.success.set(self.i18n.format(
                     "app.upload_success",
                     &[("fileName", filename), ("playerId", player_id)],
