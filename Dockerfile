@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/.cache/trunk \
     --mount=type=cache,target=/wuwa-tracker/target \
-    make webui-build && \
+    make build-webui && \
     cargo build --release -p wuwa-tracker --no-default-features --bin wuwa-tracker-cli && \
     mkdir -p /out && \
     cp target/release/wuwa-tracker-cli /out/wuwa-tracker

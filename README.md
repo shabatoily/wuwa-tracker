@@ -89,7 +89,7 @@ make bump-major      # major version bump + release commit
 make check           # Cargo workspace + WASM target check
 make clippy          # cargo clippy
 make test            # cargo test
-make ci              # fmt-check + check + clippy + test
+make ci              # check-fmt + build-webui + check-cli + check-webui + check + clippy + audit + test
 make fmt             # cargo fmt
 make clean           # Rust/WebUI build output 제거
 make distclean       # Rust/WASM 산출물 제거
