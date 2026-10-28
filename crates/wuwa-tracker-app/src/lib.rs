@@ -95,10 +95,12 @@ pub async fn run_cli() -> Result<()> {
     }
 }
 
-pub fn run_gui(gui: fn(Service) -> Result<()>) -> Result<()> {
+pub async fn run_gui(gui: fn(Service) -> Result<()>) -> Result<()> {
     let cfg = build_config(None, None);
     logging::init(&cfg.log_path, None)?;
-    gui(Service::new(cfg)?)
+    let service = Service::new(cfg)?;
+    service.prepare_echo_sets().await;
+    gui(service)
 }
 
 /// CLI 설정과 환경변수 override를 반영한 런타임 설정을 생성합니다.

@@ -3,6 +3,12 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 /// core와 애플리케이션 계층 사이에서 공유하는 실패 유형입니다.
 pub enum AppError {
+    #[error("unsupported language: {0}")]
+    UnsupportedLanguage(String),
+    #[error("invalid echo set data from encore API")]
+    InvalidEchoSetData,
+    #[error("echo set data is unavailable")]
+    EchoSetsUnavailable,
     #[error("missing player id")]
     MissingPlayerId,
     #[error("empty upload data")]

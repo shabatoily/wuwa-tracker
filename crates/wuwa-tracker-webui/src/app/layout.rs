@@ -1,6 +1,7 @@
 use super::state::{AppState, Page};
 use crate::i18n::Locale;
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 #[component]
 pub(super) fn PageTabs(state: AppState) -> impl IntoView {
@@ -42,11 +43,13 @@ pub(super) fn Header(state: AppState) -> impl IntoView {
                 <div class="flex items-center bg-slate-950/60 p-1 rounded-lg border border-slate-800/80">
                     <button
                         class=move || locale_button_class(state.i18n.locale() == Locale::Ko)
-                        on:click=move |_| state.i18n.set_locale(Locale::Ko)
+                        disabled=move || state.changing_language.get() || state.loading.get()
+                        on:click=move |_| spawn_local(async move { state.change_language(Locale::Ko).await })
                     >"KO"</button>
                     <button
                         class=move || locale_button_class(state.i18n.locale() == Locale::En)
-                        on:click=move |_| state.i18n.set_locale(Locale::En)
+                        disabled=move || state.changing_language.get() || state.loading.get()
+                        on:click=move |_| spawn_local(async move { state.change_language(Locale::En).await })
                     >"EN"</button>
                 </div>
                 <div class="text-[11px] text-slate-500 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800">

@@ -3,7 +3,7 @@ use wuwa_tracker::service::Service;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    wuwa_tracker::run_gui(run_gui)
+    wuwa_tracker::run_gui(run_gui).await
 }
 
 fn run_gui(service: Service) -> Result<()> {
@@ -12,6 +12,7 @@ fn run_gui(service: Service) -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             wuwa_tracker::api::get_config,
             wuwa_tracker::api::list_players,
+            wuwa_tracker::api::list_echo_sets,
             wuwa_tracker::api::get_stats,
             wuwa_tracker::api::scan_url,
             wuwa_tracker::api::track_url,

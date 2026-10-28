@@ -1,4 +1,5 @@
 {
+  "err.unsupported_language": "지원하지 않는 언어입니다",
     "header.title": "튜닝 통계 리포트 대시보드",
     "header.timezone_warning": "시간 표시는 로컬 장치 기준입니다.",
     "nav.dashboard": "대시보드",

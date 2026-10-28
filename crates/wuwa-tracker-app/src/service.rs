@@ -4,6 +4,7 @@ use std::{
     path::Path,
     sync::{Arc, RwLock},
 };
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info, warn};
 use wuwa_tracker_core::{
     characters::character_summaries,
@@ -16,8 +17,8 @@ use wuwa_tracker_core::{
     tracker::{self, TrackerClient},
 };
 use wuwa_tracker_types::{
-    CharacterSummary, FetchResult, GachaType, LocaleData, Payload, Record, ReportData,
-    ResourceTypes, ScanResponse, StatsResponse,
+    CharacterSummary, EchoSet, EchoSetsResponse, FetchResult, GachaType, LocaleData, Payload,
+    Record, ReportData, ResourceTypes, ScanResponse, StatsResponse,
 };
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub struct Service {
     calc: StatsCalculator,
     tracker: TrackerClient,
     locale: Arc<RwLock<Option<LocaleData>>>,
+    echo_sets: Arc<OnceCell<BTreeMap<String, Option<Vec<EchoSet>>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +58,7 @@ impl Service {
             calc,
             tracker,
             locale: Arc::new(RwLock::new(None)),
+            echo_sets: Arc::new(OnceCell::new()),
         };
         info!(
             event = "service_initialized",
@@ -67,6 +70,102 @@ impl Service {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub async fn prepare_echo_sets(&self) {
+        self.prepare_echo_sets_from(async {
+            let (ko, en) = tokio::join!(
+                wuwa_tracker_core::encore::fetch_echo_sets("ko"),
+                wuwa_tracker_core::encore::fetch_echo_sets("en"),
+            );
+            BTreeMap::from([("ko".to_string(), ko), ("en".to_string(), en)])
+        })
+        .await;
+    }
+
+    async fn prepare_echo_sets_from(
+        &self,
+        fetch: impl std::future::Future<Output = BTreeMap<String, Result<Vec<EchoSet>, AppError>>>,
+    ) {
+        // 실패도 언어별로 캐시해 초기화 중복이나 언어 전환에 따른 재요청을 방지합니다.
+        self.echo_sets.get_or_init(|| async {
+            fetch.await.into_iter().map(|(language, result)| {
+                let sets = match result {
+                    Ok(sets) => {
+                        info!(event = "echo_sets_loaded", sets = sets.len(), language = %language);
+                        Some(sets)
+                    }
+                    Err(error) => {
+                        warn!(event = "echo_sets_load_failed", language = %language, error = %error);
+                        None
+                    }
+                };
+                (language, sets)
+            }).collect()
+        }).await;
+    }
+
+    pub fn list_echo_sets(&self, lang: Option<&str>) -> Result<EchoSetsResponse, AppError> {
+        let language = self.resolve_language(lang)?.to_string();
+        let sets = self
+            .echo_sets
+            .get()
+            .and_then(|cache| cache.get(&language))
+            .and_then(Option::as_ref)
+            .ok_or(AppError::EchoSetsUnavailable)?;
+        Ok(EchoSetsResponse {
+            success: true,
+            language,
+            sets: sets.clone(),
+        })
+    }
+
+    pub fn resolve_language<'a>(&'a self, lang: Option<&'a str>) -> Result<&'a str, AppError> {
+        let lang = lang.unwrap_or(&self.config.language);
+        if matches!(lang, "ko" | "en") {
+            Ok(lang)
+        } else {
+            Err(AppError::UnsupportedLanguage(lang.to_string()))
+        }
+    }
+
+    pub fn localize_stats(
+        &self,
+        mut response: StatsResponse,
+        lang: &str,
+    ) -> Result<StatsResponse, AppError> {
+        self.resolve_language(Some(lang))?;
+        let locale = tracker::load_local_gacha_locale(lang)?;
+        let mut names = BTreeMap::new();
+        for stat in &mut response.stats {
+            if let Some(name) = self
+                .config
+                .gacha_types
+                .iter()
+                .find(|banner| banner.id == stat.gacha_type)
+                .and_then(|banner| locale.select_list.get(&banner.key))
+            {
+                names.insert(stat.gacha_name.clone(), name.clone());
+                stat.gacha_name = name.clone();
+            }
+        }
+        for summary in &mut response.character_summaries {
+            for banner in &mut summary.banners {
+                if let Some(name) = names.get(banner) {
+                    *banner = name.clone();
+                }
+            }
+        }
+        Ok(response)
+    }
+
+    pub fn localized_resource_types(&self, lang: Option<&str>) -> Result<ResourceTypes, AppError> {
+        let locale = tracker::load_local_gacha_locale(self.resolve_language(lang)?)?;
+        Ok(ResourceTypes {
+            character: locale.character,
+            weapon: locale.weapon,
+            item: locale.item,
+        })
     }
 
     /// 원격 locale이 준비되지 않았으면 설정 언어의 내장 locale을 사용합니다.
@@ -381,7 +480,7 @@ impl Service {
         format: ReportFormat,
         lang: &str,
     ) -> Result<Vec<u8>, AppError> {
-        let stats = self.load_player_stats(player_id)?;
+        let stats = self.localize_stats(self.load_player_stats(player_id)?, lang)?;
         if stats.stats.is_empty() {
             return Err(AppError::NoValidRecords);
         }
@@ -525,6 +624,86 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[tokio::test]
+    async fn echo_sets_are_loaded_once_and_shared_without_fetching_on_reads() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for fail in [false, true] {
+            let db_path = std::env::temp_dir().join(format!(
+                "wuwa-echo-sets-{}-{}.redb",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let service = Service::new(Config {
+                db_path: db_path.clone(),
+                ..Default::default()
+            })
+            .unwrap();
+            assert!(matches!(
+                service.list_echo_sets(None),
+                Err(AppError::EchoSetsUnavailable)
+            ));
+            let calls = AtomicUsize::new(0);
+            let fetch = || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                let result = if fail {
+                    Err(AppError::InvalidEchoSetData)
+                } else {
+                    Ok(vec![EchoSet {
+                        id: 1,
+                        name: "Set".into(),
+                        icon: "icon.webp".into(),
+                        effects: vec![],
+                    }])
+                };
+                BTreeMap::from([
+                    ("ko".into(), result),
+                    (
+                        "en".into(),
+                        Ok(vec![EchoSet {
+                            id: 1,
+                            name: "English set".into(),
+                            icon: String::new(),
+                            effects: vec![],
+                        }]),
+                    ),
+                ])
+            };
+            let clone = service.clone();
+            tokio::join!(
+                service.prepare_echo_sets_from(fetch()),
+                clone.prepare_echo_sets_from(fetch())
+            );
+            service.prepare_echo_sets_from(fetch()).await;
+            for _ in 0..2 {
+                let response = clone.list_echo_sets(None);
+                if fail {
+                    assert!(matches!(response, Err(AppError::EchoSetsUnavailable)));
+                } else {
+                    let json = serde_json::to_value(response.unwrap()).unwrap();
+                    assert_eq!(json["sets"][0]["id"], 1);
+                    assert_eq!(json["language"], "ko");
+                }
+            }
+
+            let english = service.list_echo_sets(Some("en")).unwrap();
+            assert_eq!(english.language, "en");
+            assert_eq!(english.sets[0].name, "English set");
+            assert!(matches!(
+                clone.list_echo_sets(Some("ja")),
+                Err(AppError::UnsupportedLanguage(_))
+            ));
+            assert_eq!(service.list_echo_sets(None).is_err(), fail);
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            drop(clone);
+            drop(service);
+            fs::remove_file(db_path).unwrap();
+        }
+    }
+
     #[test]
     fn stats_responses_include_server_character_summaries() {
         let db_path = std::env::temp_dir().join(format!(
@@ -568,6 +747,25 @@ mod tests {
             service.character_summaries("summary-test").unwrap(),
             response.character_summaries
         );
+        // 마지막 수집 locale과 표시 언어가 달라도 원본 분류와 수치는 유지합니다.
+        *service.locale.write().unwrap() = Some(tracker::load_local_gacha_locale("en").unwrap());
+        let source = service.get_stats("summary-test").unwrap();
+        assert_eq!(source.character_summaries[0].spent_astrite, 200);
+        let en = service.localize_stats(source.clone(), "en").unwrap();
+        let ko = service.localize_stats(source, "ko").unwrap();
+        assert_ne!(en.stats[0].gacha_name, ko.stats[0].gacha_name);
+        assert_eq!(en.stats[0].total_pulls, ko.stats[0].total_pulls);
+        assert_eq!(
+            en.character_summaries[0].copies,
+            ko.character_summaries[0].copies
+        );
+        assert_eq!(en.character_summaries[0].name, "Jiyan");
+        assert_eq!(
+            en.stats[0].records[0].resource_type,
+            ko.stats[0].records[0].resource_type
+        );
+        assert_eq!(en.character_summaries[0].banners[0], en.stats[0].gacha_name);
+        assert_eq!(ko.character_summaries[0].banners[0], ko.stats[0].gacha_name);
         let json = serde_json::to_value(&loaded).unwrap();
         assert_eq!(json["characterSummaries"][0]["resourceId"], 100);
         let decoded: StatsResponse = serde_json::from_value(json).unwrap();
