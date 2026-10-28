@@ -19,9 +19,12 @@ pub fn character_summaries(
     character_resource_type: &str,
     astrite_per_pull: usize,
 ) -> Vec<CharacterSummary> {
-    if character_resource_type.is_empty() {
-        return Vec::new();
-    }
+    // 원본 기록의 종류 문자열은 표시 언어와 독립적으로 판별합니다.
+    let known_types: Vec<_> = ["ko", "en"]
+        .into_iter()
+        .filter_map(|lang| crate::tracker::load_local_gacha_locale(lang).ok())
+        .map(|locale| locale.character)
+        .collect();
 
     let mut totals: BTreeMap<i32, CharacterTotal> = BTreeMap::new();
     for stat in stats {
@@ -36,7 +39,9 @@ pub fn character_summaries(
                 continue;
             }
 
-            if record.resource_type == character_resource_type {
+            if record.resource_type == character_resource_type
+                || known_types.contains(&record.resource_type)
+            {
                 let total = totals.entry(record.resource_id).or_default();
                 total.summary.resource_id = record.resource_id;
                 total.summary.name = record.name.clone();

@@ -200,6 +200,32 @@ pub struct PlayersResponse {
     pub players: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EchoSet {
+    pub id: i32,
+    pub name: String,
+    pub icon: String,
+    pub effects: Vec<EchoSetEffect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EchoSetEffect {
+    pub id: i32,
+    pub required_count: u32,
+    /// 원본 설명의 태그·치환되지 않은 placeholder를 보존합니다.
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EchoSetsResponse {
+    pub success: bool,
+    pub language: String,
+    pub sets: Vec<EchoSet>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportResponse {
