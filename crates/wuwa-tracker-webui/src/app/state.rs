@@ -1,6 +1,6 @@
 use crate::{
     api,
-    i18n::I18n,
+    i18n::{I18n, Locale},
     types::{CharacterSummary, LuckScoreThreshold, Stats, StatsResponse},
 };
 use leptos::prelude::*;
@@ -21,6 +21,7 @@ pub(super) struct AppState {
     pub(super) url: RwSignal<String>,
     pub(super) loading: RwSignal<bool>,
     pub(super) scanning: RwSignal<bool>,
+    pub(super) changing_language: RwSignal<bool>,
     pub(super) error: RwSignal<String>,
     pub(super) success: RwSignal<String>,
     pub(super) active_player: RwSignal<String>,
@@ -46,6 +47,7 @@ impl AppState {
             url: RwSignal::new(String::new()),
             loading: RwSignal::new(false),
             scanning: RwSignal::new(false),
+            changing_language: RwSignal::new(false),
             error: RwSignal::new(String::new()),
             success: RwSignal::new(String::new()),
             active_player: RwSignal::new(String::new()),
@@ -79,7 +81,7 @@ impl AppState {
     }
 
     pub(super) async fn initialize(self) {
-        if let Ok(config) = api::fetch_config().await {
+        if let Ok(config) = api::fetch_config(self.i18n.locale().code()).await {
             if config.success {
                 self.thresholds.set(config.luck_score_thresholds);
             }
@@ -88,6 +90,29 @@ impl AppState {
         if let Some(player) = self.players.get_untracked().first().cloned() {
             self.select_player(player).await;
         }
+    }
+
+    pub(super) async fn change_language(self, locale: Locale) {
+        self.i18n.set_locale(locale);
+        self.changing_language.set(true);
+        let player = self.active_player.get_untracked();
+        if !player.is_empty() {
+            let response = api::fetch_stats(&player, locale.code()).await;
+            if self.active_player.get_untracked() != player {
+                self.changing_language.set(false);
+                return;
+            }
+            match response {
+                Ok(response) if response.success => {
+                    self.replace_stats(response.stats, response.character_summaries)
+                }
+                _ => {
+                    self.replace_stats(Vec::new(), Vec::new());
+                    self.error.set(self.i18n.text("app.network_error"));
+                }
+            }
+        }
+        self.changing_language.set(false);
     }
 
     async fn load_players(self) {
@@ -103,7 +128,7 @@ impl AppState {
         self.clear_messages();
         self.active_player.set(player_id.clone());
         self.selected_character_id.set(None);
-        match api::fetch_stats(&player_id).await {
+        match api::fetch_stats(&player_id, self.i18n.locale().code()).await {
             Ok(response) if response.success => {
                 self.replace_stats(response.stats, response.character_summaries)
             }
@@ -165,7 +190,7 @@ impl AppState {
 
         self.loading.set(true);
         self.clear_messages();
-        match api::track_url(&url).await {
+        match api::track_url(&url, self.i18n.locale().code()).await {
             Ok(response) if response.success => {
                 let player_id = response.player_id;
                 self.active_player.set(player_id.clone());
@@ -199,7 +224,7 @@ impl AppState {
 
         self.loading.set(true);
         self.clear_messages();
-        match api::upload_json(&data).await {
+        match api::upload_json(&data, self.i18n.locale().code()).await {
             Ok(response) if response.success => {
                 let player_id = response.player_id;
                 self.active_player.set(player_id.clone());

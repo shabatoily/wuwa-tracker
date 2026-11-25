@@ -1,4 +1,5 @@
 {
+  "err.unsupported_language": "Unsupported language",
     "header.title": "Tuning Statistics Report Dashboard",
     "header.timezone_warning": "Time is displayed in local device timezone.",
     "nav.dashboard": "Dashboard",

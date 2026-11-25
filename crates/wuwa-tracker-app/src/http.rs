@@ -14,7 +14,8 @@ use std::{str::FromStr, time::Instant};
 use tower_http::cors::CorsLayer;
 use wuwa_tracker_core::{reporter::ReportFormat, translations, AppError};
 use wuwa_tracker_types::{
-    ConfigResponse, ErrorResponse, FetchResult, PlayersResponse, ScanResponse, StatsResponse,
+    ConfigResponse, EchoSetsResponse, ErrorResponse, FetchResult, PlayersResponse, ScanResponse,
+    StatsResponse,
 };
 
 const ENV_HOST: &str = "WUWA_TRACKER_HOST";
@@ -62,9 +63,11 @@ struct I18nQuery {
 }
 
 pub async fn serve(args: ServeArgs, service: Service) -> Result<()> {
+    service.prepare_echo_sets().await;
     print_startup_info(&args);
     let mut app = Router::new()
         .route("/api/config", get(get_config))
+        .route("/api/echo-sets", get(list_echo_sets))
         .route("/api/players", get(list_players))
         .route("/api/stats/{player_id}", get(get_stats))
         .route("/api/scan", post(scan_url))
@@ -144,12 +147,15 @@ async fn webui_asset(uri: Uri) -> Response {
     }
 }
 
-async fn get_config(State(service): State<Service>) -> Json<ConfigResponse> {
-    Json(ConfigResponse {
+async fn get_config(
+    State(service): State<Service>,
+    Query(query): Query<I18nQuery>,
+) -> Result<Json<ConfigResponse>, ApiError> {
+    Ok(Json(ConfigResponse {
         success: true,
         luck_score_thresholds: service.config().luck_score_thresholds.clone(),
-        resource_types: service.resource_types(),
-    })
+        resource_types: service.localized_resource_types(query.lang.as_deref())?,
+    }))
 }
 
 async fn list_players(State(service): State<Service>) -> Json<PlayersResponse> {
@@ -159,11 +165,22 @@ async fn list_players(State(service): State<Service>) -> Json<PlayersResponse> {
     })
 }
 
+async fn list_echo_sets(
+    Query(query): Query<I18nQuery>,
+    State(service): State<Service>,
+) -> Result<Json<EchoSetsResponse>, ApiError> {
+    Ok(Json(service.list_echo_sets(query.lang.as_deref())?))
+}
+
 async fn get_stats(
     Path(player_id): Path<String>,
     State(service): State<Service>,
+    Query(query): Query<I18nQuery>,
 ) -> Result<Json<StatsResponse>, ApiError> {
-    Ok(Json(service.get_stats(player_id)?))
+    let lang = service.resolve_language(query.lang.as_deref())?;
+    Ok(Json(
+        service.localize_stats(service.get_stats(player_id)?, lang)?,
+    ))
 }
 
 async fn scan_url(
@@ -175,23 +192,33 @@ async fn scan_url(
 
 async fn track_url(
     State(service): State<Service>,
+    Query(query): Query<I18nQuery>,
     Json(request): Json<TrackRequest>,
 ) -> Result<Json<StatsResponse>, ApiError> {
-    Ok(Json(service.track_url(request.url).await?))
+    let lang = service.resolve_language(query.lang.as_deref())?;
+    Ok(Json(service.localize_stats(
+        service.track_url(request.url).await?,
+        lang,
+    )?))
 }
 
 async fn upload_json(
     State(service): State<Service>,
+    Query(query): Query<I18nQuery>,
     Json(fetch_result): Json<FetchResult>,
 ) -> Result<Json<StatsResponse>, ApiError> {
-    Ok(Json(service.upload(fetch_result)?))
+    let lang = service.resolve_language(query.lang.as_deref())?;
+    Ok(Json(
+        service.localize_stats(service.upload(fetch_result)?, lang)?,
+    ))
 }
 
 async fn get_i18n(
     Query(query): Query<I18nQuery>,
+    State(service): State<Service>,
 ) -> Result<Json<translations::TranslationResponse>, ApiError> {
     Ok(Json(translations::load(
-        query.lang.as_deref().unwrap_or("ko"),
+        service.resolve_language(query.lang.as_deref())?,
     )?))
 }
 
@@ -201,7 +228,7 @@ async fn export_report(
     State(service): State<Service>,
 ) -> Result<Response, ApiError> {
     let format = ReportFormat::from_str(query.format.as_deref().unwrap_or("html"))?;
-    let lang = query.lang.as_deref().unwrap_or("ko");
+    let lang = service.resolve_language(query.lang.as_deref())?;
     let content = service.export_report(&player_id, format, lang)?;
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, format.content_type())
@@ -241,6 +268,9 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         // 공개 오류는 호출자가 수정할 수 있는 정도에 따라 HTTP status를 구분합니다.
         let status = match self.0 {
+            AppError::UnsupportedLanguage(_) => StatusCode::BAD_REQUEST,
+            AppError::EchoSetsUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            AppError::InvalidEchoSetData => StatusCode::BAD_GATEWAY,
             AppError::MissingPlayerId
             | AppError::EmptyUploadData
             | AppError::InvalidGachaUrl
@@ -270,6 +300,8 @@ impl IntoResponse for ApiError {
 
 fn error_key(error: &AppError) -> &'static str {
     match error {
+        AppError::UnsupportedLanguage(_) => "err.unsupported_language",
+        AppError::EchoSetsUnavailable | AppError::InvalidEchoSetData => "app.network_error",
         AppError::Json(_) => "err.invalid_request_body",
         AppError::MissingUrl => "err.missing_url",
         AppError::MissingPlayerId => "err.missing_player_id",
@@ -284,5 +316,18 @@ fn error_key(error: &AppError) -> &'static str {
         AppError::NoValidRecords | AppError::Template(_) => "err.report_generation_failed",
         AppError::PlayerNotFound | AppError::Database(_) => "err.database_query_failed",
         AppError::Http(_) | AppError::Io(_) => "app.network_error",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_echo_cache_returns_service_unavailable() {
+        let response = ApiError(AppError::EchoSetsUnavailable).into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let response = ApiError(AppError::UnsupportedLanguage("ja".to_string())).into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
