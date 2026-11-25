@@ -34,6 +34,7 @@ pub(super) fn Header(state: AppState) -> impl IntoView {
                 <div class="flex items-center gap-2 mb-1">
                     <span class="inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
                     <span class="text-xs font-semibold tracking-wider text-blue-400 uppercase">"Wuthering Waves"</span>
+                    <span class="text-xs text-slate-400">{concat!("v", env!("CARGO_PKG_VERSION"))}</span>
                 </div>
                 <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight">
                     {move || state.i18n.text("header.title")}
