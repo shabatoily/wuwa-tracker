@@ -3,16 +3,20 @@ use std::str::FromStr;
 use tauri::State;
 use wuwa_tracker_core::{reporter::ReportFormat, translations, AppError};
 use wuwa_tracker_types::{
-    ConfigResponse, ExportResponse, FetchResult, PlayersResponse, ScanResponse, StatsResponse,
+    ConfigResponse, EchoSetsResponse, ExportResponse, FetchResult, PlayersResponse, ScanResponse,
+    StatsResponse,
 };
 
 #[tauri::command]
-pub fn get_config(service: State<'_, Service>) -> ConfigResponse {
-    ConfigResponse {
+pub fn get_config(
+    service: State<'_, Service>,
+    lang: Option<String>,
+) -> Result<ConfigResponse, AppError> {
+    Ok(ConfigResponse {
         success: true,
         luck_score_thresholds: service.config().luck_score_thresholds.clone(),
-        resource_types: service.resource_types(),
-    }
+        resource_types: service.localized_resource_types(lang.as_deref())?,
+    })
 }
 
 #[tauri::command]
@@ -24,11 +28,21 @@ pub fn list_players(service: State<'_, Service>) -> PlayersResponse {
 }
 
 #[tauri::command]
+pub fn list_echo_sets(
+    lang: Option<String>,
+    service: State<'_, Service>,
+) -> Result<EchoSetsResponse, AppError> {
+    service.list_echo_sets(lang.as_deref())
+}
+
+#[tauri::command]
 pub fn get_stats(
     player_id: String,
     service: State<'_, Service>,
+    lang: Option<String>,
 ) -> Result<StatsResponse, AppError> {
-    service.get_stats(player_id)
+    let lang = service.resolve_language(lang.as_deref())?;
+    service.localize_stats(service.get_stats(player_id)?, lang)
 }
 
 #[tauri::command]
@@ -40,33 +54,41 @@ pub fn scan_url(path: String, service: State<'_, Service>) -> Result<ScanRespons
 pub async fn track_url(
     url: String,
     service: State<'_, Service>,
+    lang: Option<String>,
 ) -> Result<StatsResponse, AppError> {
-    service.track_url(url).await
+    let lang = service.resolve_language(lang.as_deref())?;
+    service.localize_stats(service.track_url(url).await?, lang)
 }
 
 #[tauri::command]
 pub fn upload_json(
     data: serde_json::Value,
     service: State<'_, Service>,
+    lang: Option<String>,
 ) -> Result<StatsResponse, AppError> {
     let fetch_result: FetchResult = serde_json::from_value(data)?;
-    service.upload(fetch_result)
+    let lang = service.resolve_language(lang.as_deref())?;
+    service.localize_stats(service.upload(fetch_result)?, lang)
 }
 
 #[tauri::command]
-pub fn get_i18n(lang: String) -> Result<translations::TranslationResponse, AppError> {
-    translations::load(&lang)
+pub fn get_i18n(
+    lang: Option<String>,
+    service: State<'_, Service>,
+) -> Result<translations::TranslationResponse, AppError> {
+    translations::load(service.resolve_language(lang.as_deref())?)
 }
 
 #[tauri::command]
 pub fn export_report(
     player_id: String,
     format: String,
-    lang: String,
+    lang: Option<String>,
     service: State<'_, Service>,
 ) -> Result<ExportResponse, AppError> {
     let format = ReportFormat::from_str(&format)?;
-    let content = service.export_report(&player_id, format, &lang)?;
+    let lang = service.resolve_language(lang.as_deref())?;
+    let content = service.export_report(&player_id, format, lang)?;
     Ok(ExportResponse {
         success: true,
         filename: format!("report_{}.{}", player_id, format.extension()),

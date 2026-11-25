@@ -25,11 +25,11 @@ extern "C" {
     async fn invoke_without_args(command: &str) -> Result<JsValue, JsValue>;
 }
 
-pub async fn fetch_config() -> Result<ConfigResponse, String> {
+pub async fn fetch_config(lang: &str) -> Result<ConfigResponse, String> {
     if is_tauri() {
-        invoke_no_args("get_config").await
+        invoke("get_config", &serde_json::json!({"lang": lang})).await
     } else {
-        get("/api/config").await
+        get(&format!("/api/config?lang={lang}")).await
     }
 }
 
@@ -41,11 +41,11 @@ pub async fn fetch_players() -> Result<PlayersResponse, String> {
     }
 }
 
-pub async fn fetch_stats(player_id: &str) -> Result<StatsResponse, String> {
+pub async fn fetch_stats(player_id: &str, lang: &str) -> Result<StatsResponse, String> {
     if is_tauri() {
-        invoke("get_stats", &PlayerArgs { player_id }).await
+        invoke("get_stats", &PlayerArgs { player_id, lang }).await
     } else {
-        get(&format!("/api/stats/{player_id}")).await
+        get(&format!("/api/stats/{player_id}?lang={lang}")).await
     }
 }
 
@@ -57,19 +57,19 @@ pub async fn scan_path(path: &str) -> Result<ScanResponse, String> {
     }
 }
 
-pub async fn track_url(url: &str) -> Result<StatsResponse, String> {
+pub async fn track_url(url: &str, lang: &str) -> Result<StatsResponse, String> {
     if is_tauri() {
-        invoke("track_url", &UrlArgs { url }).await
+        invoke("track_url", &UrlArgs { url, lang }).await
     } else {
-        post("/api/track", &UrlArgs { url }).await
+        post(&format!("/api/track?lang={lang}"), &UrlArgs { url, lang }).await
     }
 }
 
-pub async fn upload_json(data: &serde_json::Value) -> Result<StatsResponse, String> {
+pub async fn upload_json(data: &serde_json::Value, lang: &str) -> Result<StatsResponse, String> {
     if is_tauri() {
-        invoke("upload_json", &UploadArgs { data }).await
+        invoke("upload_json", &UploadArgs { data, lang }).await
     } else {
-        post("/api/upload", data).await
+        post(&format!("/api/upload?lang={lang}"), data).await
     }
 }
 

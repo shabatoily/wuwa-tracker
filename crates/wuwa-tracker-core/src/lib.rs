@@ -2,6 +2,7 @@
 
 pub mod characters;
 pub mod config;
+pub mod encore;
 pub mod error;
 pub mod logger;
 pub mod merge;

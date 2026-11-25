@@ -9,6 +9,7 @@ pub use wuwa_tracker_types::{
 #[serde(rename_all = "camelCase")]
 pub struct PlayerArgs<'a> {
     pub player_id: &'a str,
+    pub lang: &'a str,
 }
 
 #[derive(Serialize)]
@@ -19,11 +20,13 @@ pub struct PathArgs<'a> {
 #[derive(Serialize)]
 pub struct UrlArgs<'a> {
     pub url: &'a str,
+    pub lang: &'a str,
 }
 
 #[derive(Serialize)]
 pub struct UploadArgs<'a> {
     pub data: &'a serde_json::Value,
+    pub lang: &'a str,
 }
 
 #[derive(Serialize)]

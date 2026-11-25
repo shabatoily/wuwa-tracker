@@ -155,8 +155,9 @@ cargo run -p wuwa-tracker --no-default-features --bin wuwa-tracker-cli -- --dbpa
 | --- | --- | --- |
 | `POST` | `/api/track` | `{ "url": "..." }`로 원격 가챠 기록 조회 후 저장 |
 | `POST` | `/api/upload` | `FetchResult` JSON 업로드 후 저장 |
-| `GET` | `/api/stats/{player_id}` | 저장 기록 기반 통계 조회 |
+| `GET` | `/api/stats/{player_id}?lang={lang}` | 저장 기록 기반 통계 조회 |
 | `GET` | `/api/players` | 저장된 플레이어 목록 조회 |
+| `GET` | `/api/echo-sets?lang={lang}` | 시작 시 수집한 에코 세트 목록 조회 ([상세](docs/features/encore-api/echo-sets.md)) |
 | `GET` | `/api/config` | Luck Score threshold 설정 조회 |
 | `GET` | `/api/i18n?lang={lang}` | UI 번역 조회 |
 | `GET` | `/api/export/{player_id}?format={format}&lang={lang}` | HTML/JSON/CSV 리포트 다운로드 |
