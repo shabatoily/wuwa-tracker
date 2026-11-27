@@ -118,7 +118,7 @@ jobs:
           Compress-Archive -Path "dist/$Target" -DestinationPath "dist/$Target.zip" -Force
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wuwa-tracker-${{ steps.version.outputs.tag }}-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*.${{ matrix.archive_ext }}
