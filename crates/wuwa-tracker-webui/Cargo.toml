@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gloo-net = "0.6"
+gloo-net = "0.8"
 js-sys = "0.3"
 leptos = { version = "0.8.22", features = ["csr"] }
 serde.workspace = true
